@@ -10,7 +10,6 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const file = formData.get("pdf") as File | null;
-    const sourceLang = (formData.get("sourceLang") as string) || "Hindi";
 
     if (!file) {
       return NextResponse.json(
@@ -65,7 +64,7 @@ Page types:
 IMPORTANT: If a page is part of the story but has only an illustration with no real text (or just a page number), classify it as "illustration" with an empty text field. Do NOT invent or hallucinate text for illustration pages.
 IMPORTANT: Ignore page numbers. Do NOT include page numbers (like "1", "2", "12", etc.) in the extracted text. Only extract the actual story text.
 IMPORTANT: Page 2 in children's books is almost always a publisher/credits page — classify it as "publisher" unless it clearly contains story text.
-Extract ALL story text from content pages faithfully. The text is in ${sourceLang}. Do not translate it.`,
+Extract ALL story text from content pages faithfully. Do not translate it — keep the original language as-is.`,
             },
           ],
         },
@@ -93,7 +92,33 @@ Extract ALL story text from content pages faithfully. The text is in ${sourceLan
       );
     }
 
-    // Step 2: Translate only pages that have text
+    // Step 2: Detect the language from extracted text
+    const sampleText = textPages
+      .slice(0, 3)
+      .map((p: { text: string }) => p.text)
+      .join("\n")
+      .slice(0, 1000);
+
+    let detectedLanguage = "Unknown";
+    if (sampleText.trim()) {
+      const langResponse = await genai.models.generateContent({
+        model: "gemini-2.0-flash-lite",
+        contents: `Identify the language of the following text. Return ONLY a JSON object with the language name in English (e.g. "Hindi", "Spanish", "Arabic", "French", "Mandarin", etc).
+
+Text:
+${sampleText}
+
+Return ONLY:
+{ "language": "the language name" }`,
+        config: { responseMimeType: "application/json" },
+      });
+      const langResult = JSON.parse(
+        cleanJsonResponse(getResponseText(langResponse))
+      );
+      detectedLanguage = langResult.language || "Unknown";
+    }
+
+    // Step 3: Translate only pages that have text
     const translateMap: Record<
       number,
       { text: string; vocab: { english: string; original: string }[] }
@@ -109,7 +134,7 @@ Extract ALL story text from content pages faithfully. The text is in ${sourceLan
 
       const translateResponse = await genai.models.generateContent({
         model: "gemini-2.0-flash",
-        contents: `You are a precise translator. Translate the following ${sourceLang} text into English.
+        contents: `You are a precise translator. Translate the following ${detectedLanguage} text into English.
 The translation is for a children's story, so keep the language simple and age-appropriate.
 
 The text is divided into pages marked with [PAGE N]. Preserve the page divisions and page numbers exactly.
@@ -164,7 +189,7 @@ ${allText}`,
       );
     }
 
-    // Step 3: Build final page array
+    // Step 4: Build final page array
     const pages = storyPages.map(
       (p: { pageNum: number; text?: string }) => {
         const translation = translateMap[p.pageNum] || {
@@ -184,6 +209,7 @@ ${allText}`,
     return NextResponse.json({
       pages,
       totalPdfPages: ocrData.pages.length,
+      detectedLanguage,
     });
   } catch (err) {
     console.error("Process PDF error:", err);

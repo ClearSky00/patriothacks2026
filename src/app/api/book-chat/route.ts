@@ -26,17 +26,22 @@ ${storyText}
 
 The child asks: "${question}"
 
-First, determine if this question is related to the story above. If it is NOT related to the story (e.g. questions about weather, math, personal questions, or anything unrelated), respond with isRelevant: false and a gentle redirect.
-
-If it IS related, answer in 2-3 simple sentences a child would understand.
+Instructions:
+1. Detect the language of the child's question.
+2. Determine if the question is related to the story. If NOT related (e.g. weather, math, personal questions, anything unrelated), set isRelevant to false.
+3. If related, answer in 2-3 simple sentences a child would understand. Always provide the answer in English.
+4. If the question is NOT in English, also provide "translatedAnswer" — the same answer translated into the language the child used. If the question IS in English, set "translatedAnswer" to null.
+5. Set "detectedLanguage" to the language name of the question (e.g. "Spanish", "Hindi", "Arabic", "English").
 
 Return ONLY a JSON object:
 {
   "isRelevant": true or false,
-  "answer": "your response here"
+  "answer": "your English response here",
+  "translatedAnswer": "response in the child's language, or null if question was in English",
+  "detectedLanguage": "the language name"
 }
 
-If not relevant, use an answer like: "That's a great question, but let's focus on the story! Try asking me something about what happened in the book."`;
+If not relevant, use an answer like: "That's a great question, but let's focus on the story! Try asking me something about what happened in the book." — and translate that redirect too if the question was not in English.`;
 
     const response = await genai.models.generateContent({
       model: "gemini-2.0-flash-lite",

@@ -7,13 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { Upload, Trash2, Check, FileText, BookOpen, Globe } from "lucide-react";
 import type { Book } from "@/lib/supabase/types";
@@ -33,12 +26,6 @@ interface StoryInputProps {
   onNavigateToSetup: () => void;
 }
 
-const LANGUAGES = [
-  "Hindi", "Spanish", "Mandarin", "Arabic", "Tagalog", "Vietnamese",
-  "Korean", "French", "Portuguese", "Urdu", "Bengali", "Tamil",
-  "Telugu", "Gujarati", "Punjabi",
-];
-
 export function StoryInput({
   active,
   voiceId,
@@ -46,7 +33,6 @@ export function StoryInput({
   onNavigateToSetup,
 }: StoryInputProps) {
   const { user } = useAuth();
-  const [sourceLang, setSourceLang] = useState("Hindi");
   const [bookName, setBookName] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -141,13 +127,13 @@ export function StoryInput({
     try {
       const form = new FormData();
       form.append("pdf", pdfFile);
-      form.append("sourceLang", sourceLang);
       const res = await fetch("/api/process-pdf", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "PDF processing failed");
-      setProgressText(`Found ${data.pages.length} story pages (of ${data.totalPdfPages} total)`);
-      onPagesReady(data.pages, sourceLang, pdfFile);
-      saveBookToSupabase(data.pages, sourceLang, pdfFile, bookName.trim() || pdfFile.name.replace(/\.pdf$/i, ""));
+      const lang = data.detectedLanguage || "Unknown";
+      setProgressText(`Found ${data.pages.length} story pages (of ${data.totalPdfPages} total) — detected language: ${lang}`);
+      onPagesReady(data.pages, lang, pdfFile);
+      saveBookToSupabase(data.pages, lang, pdfFile, bookName.trim() || pdfFile.name.replace(/\.pdf$/i, ""));
     } catch (err) {
       alert("PDF processing failed: " + (err instanceof Error ? err.message : "Unknown error"));
       setProgressText("");
@@ -229,34 +215,17 @@ export function StoryInput({
 
           {/* Upload Form */}
           <div className="mx-auto max-w-lg space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="bookName" className="mb-1.5 block text-sm font-medium">
-                  Book name
-                </label>
-                <Input
-                  type="text"
-                  id="bookName"
-                  placeholder="e.g. The Giving Tree"
-                  value={bookName}
-                  onChange={(e) => setBookName(e.target.value)}
-                />
-              </div>
-              <div>
-                <label htmlFor="sourceLang" className="mb-1.5 block text-sm font-medium">
-                  Language
-                </label>
-                <Select value={sourceLang} onValueChange={setSourceLang}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {LANGUAGES.map((lang) => (
-                      <SelectItem key={lang} value={lang}>{lang}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div>
+              <label htmlFor="bookName" className="mb-1.5 block text-sm font-medium">
+                Book name
+              </label>
+              <Input
+                type="text"
+                id="bookName"
+                placeholder="e.g. The Giving Tree"
+                value={bookName}
+                onChange={(e) => setBookName(e.target.value)}
+              />
             </div>
 
             {!pdfFile ? (

@@ -17,7 +17,69 @@ import {
   Volume2,
   Loader2,
   Mic,
+  Languages,
 } from "lucide-react";
+
+const LANG_TO_BCP47: Record<string, string> = {
+  hindi: "hi-IN",
+  spanish: "es-ES",
+  french: "fr-FR",
+  arabic: "ar-SA",
+  chinese: "zh-CN",
+  mandarin: "zh-CN",
+  cantonese: "zh-HK",
+  japanese: "ja-JP",
+  korean: "ko-KR",
+  portuguese: "pt-BR",
+  russian: "ru-RU",
+  german: "de-DE",
+  italian: "it-IT",
+  turkish: "tr-TR",
+  vietnamese: "vi-VN",
+  thai: "th-TH",
+  bengali: "bn-IN",
+  tamil: "ta-IN",
+  telugu: "te-IN",
+  marathi: "mr-IN",
+  gujarati: "gu-IN",
+  kannada: "kn-IN",
+  malayalam: "ml-IN",
+  punjabi: "pa-IN",
+  urdu: "ur-PK",
+  persian: "fa-IR",
+  farsi: "fa-IR",
+  polish: "pl-PL",
+  ukrainian: "uk-UA",
+  dutch: "nl-NL",
+  swedish: "sv-SE",
+  tagalog: "fil-PH",
+  filipino: "fil-PH",
+  indonesian: "id-ID",
+  malay: "ms-MY",
+  swahili: "sw-KE",
+  amharic: "am-ET",
+  somali: "so-SO",
+  "haitian creole": "ht-HT",
+  nepali: "ne-NP",
+  burmese: "my-MM",
+  khmer: "km-KH",
+  lao: "lo-LA",
+  czech: "cs-CZ",
+  romanian: "ro-RO",
+  hungarian: "hu-HU",
+  greek: "el-GR",
+  hebrew: "he-IL",
+  english: "en-US",
+};
+
+function getBcp47(langName: string): string {
+  return LANG_TO_BCP47[langName.toLowerCase().trim()] || "en-US";
+}
+
+/** Strip leading letter prefixes like "A. ", "B) ", "C: ", "D - " from quiz options */
+function stripOptionPrefix(text: string): string {
+  return text.replace(/^[A-Da-d][.):\-\s]\s*/, "");
+}
 
 interface QuizProps {
   active: boolean;
@@ -38,6 +100,8 @@ interface MCQuestion {
 interface ChatMessage {
   role: "user" | "assistant";
   text: string;
+  translatedText?: string | null;
+  detectedLanguage?: string | null;
 }
 
 export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
@@ -53,6 +117,8 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
   const [chatLoading, setChatLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isPlayingResponse, setIsPlayingResponse] = useState(false);
+  const [playingMsgIdx, setPlayingMsgIdx] = useState<number | null>(null);
+  const [micLang, setMicLang] = useState<"source" | "en">("source");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -73,9 +139,12 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
       if (!res.ok) throw new Error(data.error || "Quiz generation failed");
 
       setQuestions(
-        (data.questions as MCQuestion[]).filter(
-          (q) => q.type === "multiple_choice"
-        )
+        (data.questions as MCQuestion[])
+          .filter((q) => q.type === "multiple_choice")
+          .map((q) => ({
+            ...q,
+            options: q.options.map(stripOptionPrefix),
+          }))
       );
     } catch (err) {
       console.error("Quiz load error:", err);
@@ -119,6 +188,59 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
+  const stopTTS = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setIsPlayingResponse(false);
+    setPlayingMsgIdx(null);
+  }, []);
+
+  const playTTS = useCallback(
+    async (text: string, msgIdx?: number) => {
+      if (!voiceId || !text) return;
+      // If already playing, stop
+      if (audioRef.current) {
+        stopTTS();
+        return;
+      }
+      try {
+        setIsPlayingResponse(true);
+        if (msgIdx !== undefined) setPlayingMsgIdx(msgIdx);
+        const ttsRes = await fetch("/api/speak", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, voiceId }),
+        });
+        if (ttsRes.ok) {
+          const audioBlob = await ttsRes.blob();
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const audio = new Audio(audioUrl);
+          audioRef.current = audio;
+          audio.onended = () => {
+            setIsPlayingResponse(false);
+            setPlayingMsgIdx(null);
+            URL.revokeObjectURL(audioUrl);
+          };
+          audio.onerror = () => {
+            setIsPlayingResponse(false);
+            setPlayingMsgIdx(null);
+            URL.revokeObjectURL(audioUrl);
+          };
+          await audio.play();
+        } else {
+          setIsPlayingResponse(false);
+          setPlayingMsgIdx(null);
+        }
+      } catch {
+        setIsPlayingResponse(false);
+        setPlayingMsgIdx(null);
+      }
+    },
+    [voiceId]
+  );
+
   const sendChatMessage = useCallback(
     async (text: string) => {
       if (!text.trim() || chatLoading) return;
@@ -140,38 +262,14 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
         const assistantMsg: ChatMessage = {
           role: "assistant",
           text: data.answer,
+          translatedText: data.translatedAnswer || null,
+          detectedLanguage: data.detectedLanguage || null,
         };
         setChatMessages((prev) => [...prev, assistantMsg]);
 
-        // Play TTS if we have a voiceId
+        // Play English answer TTS if we have a voiceId
         if (voiceId && data.answer) {
-          try {
-            setIsPlayingResponse(true);
-            const ttsRes = await fetch("/api/speak", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: data.answer, voiceId }),
-            });
-            if (ttsRes.ok) {
-              const audioBlob = await ttsRes.blob();
-              const audioUrl = URL.createObjectURL(audioBlob);
-              const audio = new Audio(audioUrl);
-              audioRef.current = audio;
-              audio.onended = () => {
-                setIsPlayingResponse(false);
-                URL.revokeObjectURL(audioUrl);
-              };
-              audio.onerror = () => {
-                setIsPlayingResponse(false);
-                URL.revokeObjectURL(audioUrl);
-              };
-              await audio.play();
-            } else {
-              setIsPlayingResponse(false);
-            }
-          } catch {
-            setIsPlayingResponse(false);
-          }
+          await playTTS(data.answer);
         }
       } catch (err) {
         console.error("Chat error:", err);
@@ -186,7 +284,7 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
         setChatLoading(false);
       }
     },
-    [chatLoading, storyText, voiceId]
+    [chatLoading, storyText, voiceId, playTTS]
   );
 
   const startListening = useCallback(() => {
@@ -197,7 +295,8 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
     if (!SpeechRecognition) return;
 
     const recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
+    recognition.lang =
+      micLang === "en" ? "en-US" : getBcp47(sourceLang);
     recognition.interimResults = false;
     recognition.continuous = false;
 
@@ -215,7 +314,7 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
     recognition.onerror = () => setIsListening(false);
 
     recognition.start();
-  }, [sendChatMessage]);
+  }, [sendChatMessage, micLang, sourceLang]);
 
   // --- Result helpers ---
 
@@ -409,15 +508,51 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
                       msg.role === "user" ? "justify-end" : "justify-start"
                     )}
                   >
-                    <div
-                      className={cn(
-                        "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm",
-                        msg.role === "user"
-                          ? "bg-foreground text-white"
-                          : "bg-secondary text-foreground"
+                    <div className="max-w-[80%] space-y-1.5">
+                      <div
+                        className={cn(
+                          "rounded-2xl px-4 py-2.5 text-sm",
+                          msg.role === "user"
+                            ? "bg-foreground text-white"
+                            : "bg-secondary text-foreground"
+                        )}
+                      >
+                        {msg.text}
+                      </div>
+                      {msg.role === "assistant" && msg.translatedText && (
+                        <div className="rounded-2xl border border-border bg-white px-4 py-2.5 text-sm">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                            {msg.detectedLanguage || "Translation"}
+                          </p>
+                          <p>{msg.translatedText}</p>
+                          {voiceId && (
+                            <button
+                              className={cn(
+                                "mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-none bg-secondary px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
+                                isPlayingResponse && playingMsgIdx === i && "text-foreground"
+                              )}
+                              onClick={() =>
+                                isPlayingResponse && playingMsgIdx === i
+                                  ? stopTTS()
+                                  : playTTS(msg.translatedText!, i)
+                              }
+                              disabled={isPlayingResponse && playingMsgIdx !== i}
+                            >
+                              {isPlayingResponse && playingMsgIdx === i ? (
+                                <>
+                                  <Volume2 className="size-3.5 animate-pulse" />
+                                  Stop
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="size-3.5" />
+                                  Listen in {msg.detectedLanguage || "your language"}
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
                       )}
-                    >
-                      {msg.text}
                     </div>
                   </div>
                 ))}
@@ -429,12 +564,15 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
                     </div>
                   </div>
                 )}
-                {isPlayingResponse && (
+                {isPlayingResponse && playingMsgIdx === null && (
                   <div className="flex justify-start">
-                    <div className="flex items-center gap-2 rounded-2xl bg-secondary px-4 py-2.5 text-xs text-muted-foreground">
+                    <button
+                      className="flex cursor-pointer items-center gap-2 rounded-2xl border-none bg-secondary px-4 py-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={stopTTS}
+                    >
                       <Volume2 className="size-3.5 animate-pulse" />
-                      Speaking...
-                    </div>
+                      Speaking... tap to stop
+                    </button>
                   </div>
                 )}
                 <div ref={chatEndRef} />
@@ -442,6 +580,16 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
 
               {/* Chat input */}
               <div className="flex items-center gap-2 border-t border-border p-3">
+                <button
+                  className="flex shrink-0 cursor-pointer items-center gap-1 rounded-xl border-none bg-secondary px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() =>
+                    setMicLang((l) => (l === "source" ? "en" : "source"))
+                  }
+                  title={`Mic language: ${micLang === "en" ? "English" : sourceLang}. Click to switch.`}
+                >
+                  <Languages className="size-3.5" />
+                  {micLang === "en" ? "EN" : sourceLang.slice(0, 3).toUpperCase()}
+                </button>
                 <button
                   className={cn(
                     "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-xl border-none transition-all",

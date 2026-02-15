@@ -41,6 +41,12 @@ export function StoryReader({
 
   pageIndexRef.current = currentPage;
 
+  // Reset to page 1 when a new book is loaded
+  useEffect(() => {
+    setCurrentPage(0);
+    prevPageRef.current = 0;
+  }, [pages]);
+
   useEffect(() => {
     if (!pdfFile || !active) return;
 
@@ -130,6 +136,14 @@ export function StoryReader({
   const playPageAudio = async (lang: "english" | "original") => {
     const page = pages[currentPage];
     if (!page || !voiceId) return;
+
+    // If already playing this button, stop it
+    if (playingBtn === lang && currentAudio) {
+      currentAudio.pause();
+      setCurrentAudio(null);
+      setPlayingBtn(null);
+      return;
+    }
 
     const text = lang === "english" ? page.translatedText : page.originalText;
     if (!text) return;
@@ -371,12 +385,11 @@ export function StoryReader({
                         : "border-border bg-transparent text-muted-foreground hover:border-foreground/40 hover:text-foreground"
                     )}
                     onClick={() => playPageAudio("english")}
-                    disabled={playingBtn === "english"}
                   >
                     {playingBtn === "english" ? (
                       <>
                         <Pause className="size-3" />
-                        Playing
+                        Stop
                       </>
                     ) : (
                       <>
@@ -407,12 +420,11 @@ export function StoryReader({
                         : "border-border bg-transparent text-muted-foreground hover:border-foreground/40 hover:text-foreground"
                     )}
                     onClick={() => playPageAudio("original")}
-                    disabled={playingBtn === "original"}
                   >
                     {playingBtn === "original" ? (
                       <>
                         <Pause className="size-3" />
-                        Playing
+                        Stop
                       </>
                     ) : (
                       <>
