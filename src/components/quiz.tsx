@@ -1,10 +1,23 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { PageData } from "./story-input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Trophy, RotateCcw, CheckCircle2, XCircle, PartyPopper, TrendingUp, BookOpen, Volume2, Pause } from "lucide-react";
+import {
+  Trophy,
+  RotateCcw,
+  CheckCircle2,
+  XCircle,
+  PartyPopper,
+  TrendingUp,
+  BookOpen,
+  MessageCircle,
+  Send,
+  Volume2,
+  Loader2,
+  Mic,
+} from "lucide-react";
 
 interface QuizProps {
   active: boolean;
@@ -22,14 +35,26 @@ interface MCQuestion {
   pageRef?: string;
 }
 
+interface ChatMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
 export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
   const [loading, setLoading] = useState(false);
   const [questions, setQuestions] = useState<MCQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [showResults, setShowResults] = useState(false);
   const [loadKey, setLoadKey] = useState(0);
-  const [playingKey, setPlayingKey] = useState<string | null>(null);
-  const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+
+  // Chatbot state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isPlayingResponse, setIsPlayingResponse] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const loadQuiz = useCallback(async () => {
     if (pages.length === 0) return;
@@ -86,46 +111,113 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
     setAnswers((prev) => ({ ...prev, [qIdx]: optIdx }));
   };
 
-  const narrate = async (key: string, text: string) => {
-    if (!voiceId) return;
+  // --- Chatbot logic ---
 
-    if (currentAudio) {
-      currentAudio.pause();
-      setCurrentAudio(null);
-    }
+  const storyText = pages.map((p) => p.translatedText).join("\n");
 
-    if (playingKey === key) {
-      setPlayingKey(null);
-      return;
-    }
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
 
-    setPlayingKey(key);
+  const sendChatMessage = useCallback(
+    async (text: string) => {
+      if (!text.trim() || chatLoading) return;
 
-    try {
-      const res = await fetch("/api/speak", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voiceId, lang: "en" }),
-      });
-      if (!res.ok) throw new Error("TTS failed");
+      const userMsg: ChatMessage = { role: "user", text: text.trim() };
+      setChatMessages((prev) => [...prev, userMsg]);
+      setChatInput("");
+      setChatLoading(true);
 
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      setCurrentAudio(audio);
-      audio.play();
-      audio.onended = () => {
-        setPlayingKey(null);
-        setCurrentAudio(null);
-        URL.revokeObjectURL(url);
-      };
-    } catch (err) {
-      console.error("Narrate error:", err);
-      setPlayingKey(null);
-    }
-  };
+      try {
+        const res = await fetch("/api/book-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: text.trim(), storyText }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Chat failed");
 
-  let mcNum = 0;
+        const assistantMsg: ChatMessage = {
+          role: "assistant",
+          text: data.answer,
+        };
+        setChatMessages((prev) => [...prev, assistantMsg]);
+
+        // Play TTS if we have a voiceId
+        if (voiceId && data.answer) {
+          try {
+            setIsPlayingResponse(true);
+            const ttsRes = await fetch("/api/speak", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: data.answer, voiceId }),
+            });
+            if (ttsRes.ok) {
+              const audioBlob = await ttsRes.blob();
+              const audioUrl = URL.createObjectURL(audioBlob);
+              const audio = new Audio(audioUrl);
+              audioRef.current = audio;
+              audio.onended = () => {
+                setIsPlayingResponse(false);
+                URL.revokeObjectURL(audioUrl);
+              };
+              audio.onerror = () => {
+                setIsPlayingResponse(false);
+                URL.revokeObjectURL(audioUrl);
+              };
+              await audio.play();
+            } else {
+              setIsPlayingResponse(false);
+            }
+          } catch {
+            setIsPlayingResponse(false);
+          }
+        }
+      } catch (err) {
+        console.error("Chat error:", err);
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: "Sorry, I had trouble answering. Try again!",
+          },
+        ]);
+      } finally {
+        setChatLoading(false);
+      }
+    },
+    [chatLoading, storyText, voiceId]
+  );
+
+  const startListening = useCallback(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SpeechRecognition =
+      w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    setIsListening(true);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (e: any) => {
+      const transcript = e.results[0]?.[0]?.transcript;
+      if (transcript) {
+        sendChatMessage(transcript);
+      }
+    };
+
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+
+    recognition.start();
+  }, [sendChatMessage]);
+
+  // --- Result helpers ---
 
   const getResultIcon = () => {
     const pct = mcScore / totalMC;
@@ -160,125 +252,97 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
         {loading && (
           <div className="mt-16 flex flex-col items-center gap-4">
             <div className="loader-dark" />
-            <p className="text-sm text-muted-foreground">Generating questions...</p>
+            <p className="text-sm text-muted-foreground">
+              Generating questions...
+            </p>
           </div>
         )}
 
+        {/* Questions */}
         <div className="mt-8 space-y-5">
           {questions.map((q, qIdx) => {
-            {
-              mcNum++;
-              const answered = answers[qIdx] !== undefined;
-              const selected = answers[qIdx];
+            const answered = answers[qIdx] !== undefined;
+            const selected = answers[qIdx];
 
-              return (
-                <div
-                  key={qIdx}
-                  className="animate-fade-in-up overflow-hidden rounded-2xl border border-border bg-white shadow-sm"
-                  style={{ animationDelay: `${qIdx * 50}ms` }}
-                >
-                  <div className="p-6">
-                    <span className="inline-flex items-center gap-2">
-                      <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Question {mcNum}
-                      </span>
-                      {q.pageRef && (
-                        <span className="inline-flex items-center rounded-full bg-foreground/5 px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                          {q.pageRef}
-                        </span>
-                      )}
+            return (
+              <div
+                key={qIdx}
+                className="animate-fade-in-up overflow-hidden rounded-2xl border border-border bg-white shadow-sm"
+                style={{ animationDelay: `${qIdx * 50}ms` }}
+              >
+                <div className="p-6">
+                  <span className="inline-flex items-center gap-2">
+                    <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Question {qIdx + 1}
                     </span>
-                    <p className="mt-3 text-sm font-semibold leading-relaxed">
-                      {q.question}
-                    </p>
-                    {voiceId && (
-                      <button
-                        className={cn(
-                          "mt-2 flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
-                          playingKey === `q-${qIdx}`
-                            ? "border-foreground bg-foreground text-white"
-                            : "border-border bg-transparent text-muted-foreground hover:border-foreground/40 hover:text-foreground"
-                        )}
-                        onClick={() => {
-                          const fullText = `${q.question} <break time="0.5s" /> A. ${q.options[0]}. <break time="0.5s" /> B. ${q.options[1]}. <break time="0.8s" /> C. ${q.options[2]}. <break time="0.8s" /> ${q.options[3] ? `D. ${q.options[3]}.` : ""}`;
-                          narrate(`q-${qIdx}`, fullText);
-                        }}
-                      >
-                        {playingKey === `q-${qIdx}` ? (
-                          <><Pause className="size-3" /> Playing</>
-                        ) : (
-                          <><Volume2 className="size-3" /> Listen</>
-                        )}
-                      </button>
+                    {q.pageRef && (
+                      <span className="inline-flex items-center rounded-full bg-foreground/5 px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                        {q.pageRef}
+                      </span>
                     )}
-                    <div className="mt-4 space-y-2">
-                      {q.options.map((opt, oIdx) => {
-                        const isCorrect = answered && oIdx === q.correct;
-                        const isIncorrect =
-                          answered && oIdx === selected && selected !== q.correct;
+                  </span>
+                  <p className="mt-3 text-sm font-semibold leading-relaxed">
+                    {q.question}
+                  </p>
+                  <div className="mt-4 space-y-2">
+                    {q.options.map((opt, oIdx) => {
+                      const isCorrect = answered && oIdx === q.correct;
+                      const isIncorrect =
+                        answered &&
+                        oIdx === selected &&
+                        selected !== q.correct;
 
-                        return (
-                          <button
-                            key={oIdx}
-                            className={cn(
-                              "flex w-full cursor-pointer items-center gap-3 rounded-xl border bg-transparent px-4 py-3 text-left text-sm transition-all",
-                              !answered && "border-border hover:border-foreground/40 hover:bg-secondary/50",
-                              isCorrect && "border-success/50 bg-success/5",
-                              isIncorrect && "border-destructive/50 bg-destructive/5",
-                              answered && !isCorrect && !isIncorrect && "border-border opacity-40",
-                            )}
-                            onClick={() => handleAnswer(qIdx, oIdx)}
-                          >
-                            <span
-                              className={cn(
-                                "flex size-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold transition-all",
-                                !answered && "bg-secondary text-muted-foreground",
-                                isCorrect && "bg-success text-white",
-                                isIncorrect && "bg-destructive text-white",
-                                answered && !isCorrect && !isIncorrect && "bg-secondary text-muted-foreground",
-                              )}
-                            >
-                              {isCorrect ? (
-                                <CheckCircle2 className="size-4" />
-                              ) : isIncorrect ? (
-                                <XCircle className="size-4" />
-                              ) : (
-                                String.fromCharCode(65 + oIdx)
-                              )}
-                            </span>
-                            <span>{opt}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {answered && (
-                      <div className="mt-4 rounded-xl bg-secondary px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-                        <div className="flex items-start justify-between gap-2">
-                          <span>{q.explanation}</span>
-                          {voiceId && (
-                            <button
-                              className={cn(
-                                "ml-2 flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium transition-all",
-                                playingKey === `exp-${qIdx}`
-                                  ? "border-foreground bg-foreground text-white"
-                                  : "border-border bg-transparent text-muted-foreground hover:border-foreground/40 hover:text-foreground"
-                              )}
-                              onClick={() => narrate(`exp-${qIdx}`, q.explanation)}
-                            >
-                              {playingKey === `exp-${qIdx}` ? (
-                                <><Pause className="size-3" /> Playing</>
-                              ) : (
-                                <><Volume2 className="size-3" /> Listen</>
-                              )}
-                            </button>
+                      return (
+                        <button
+                          key={oIdx}
+                          className={cn(
+                            "flex w-full cursor-pointer items-center gap-3 rounded-xl border bg-transparent px-4 py-3 text-left text-sm transition-all",
+                            !answered &&
+                            "border-border hover:border-foreground/40 hover:bg-secondary/50",
+                            isCorrect && "border-success/50 bg-success/5",
+                            isIncorrect &&
+                            "border-destructive/50 bg-destructive/5",
+                            answered &&
+                            !isCorrect &&
+                            !isIncorrect &&
+                            "border-border opacity-40"
                           )}
-                        </div>
-                      </div>
-                    )}
+                          onClick={() => handleAnswer(qIdx, oIdx)}
+                        >
+                          <span
+                            className={cn(
+                              "flex size-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold transition-all",
+                              !answered &&
+                              "bg-secondary text-muted-foreground",
+                              isCorrect && "bg-success text-white",
+                              isIncorrect && "bg-destructive text-white",
+                              answered &&
+                              !isCorrect &&
+                              !isIncorrect &&
+                              "bg-secondary text-muted-foreground"
+                            )}
+                          >
+                            {isCorrect ? (
+                              <CheckCircle2 className="size-4" />
+                            ) : isIncorrect ? (
+                              <XCircle className="size-4" />
+                            ) : (
+                              String.fromCharCode(65 + oIdx)
+                            )}
+                          </span>
+                          <span>{opt}</span>
+                        </button>
+                      );
+                    })}
                   </div>
+                  {answered && (
+                    <div className="mt-4 rounded-xl bg-secondary px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+                      {q.explanation}
+                    </div>
+                  )}
                 </div>
-              );
-            }
+              </div>
+            );
           })}
         </div>
 
@@ -293,7 +357,10 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
             </p>
             <p className="mt-3 text-5xl font-extrabold tracking-tight">
               {mcScore}
-              <span className="text-lg font-medium text-muted-foreground"> / {totalMC}</span>
+              <span className="text-lg font-medium text-muted-foreground">
+                {" "}
+                / {totalMC}
+              </span>
             </p>
             <p className="mt-4 text-sm text-muted-foreground">
               {getResultMessage()}
@@ -306,6 +373,113 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
               <RotateCcw className="mr-1.5 size-3.5" />
               Try Again
             </Button>
+          </div>
+        )}
+
+        {/* Chatbot section */}
+        {questions.length > 0 && (
+          <div className="mt-10">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex size-10 items-center justify-center rounded-xl bg-foreground text-white">
+                <MessageCircle className="size-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold tracking-tight">
+                  Ask About the Story
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Have a question? Ask me anything about the book!
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
+              {/* Chat messages */}
+              <div className="max-h-80 overflow-y-auto p-4 space-y-3">
+                {chatMessages.length === 0 && (
+                  <p className="text-center text-xs text-muted-foreground py-6">
+                    Ask a question about the story to get started!
+                  </p>
+                )}
+                {chatMessages.map((msg, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      "flex",
+                      msg.role === "user" ? "justify-end" : "justify-start"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm",
+                        msg.role === "user"
+                          ? "bg-foreground text-white"
+                          : "bg-secondary text-foreground"
+                      )}
+                    >
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div className="flex justify-start">
+                    <div className="flex items-center gap-2 rounded-2xl bg-secondary px-4 py-2.5 text-sm text-muted-foreground">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      Thinking...
+                    </div>
+                  </div>
+                )}
+                {isPlayingResponse && (
+                  <div className="flex justify-start">
+                    <div className="flex items-center gap-2 rounded-2xl bg-secondary px-4 py-2.5 text-xs text-muted-foreground">
+                      <Volume2 className="size-3.5 animate-pulse" />
+                      Speaking...
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Chat input */}
+              <div className="flex items-center gap-2 border-t border-border p-3">
+                <button
+                  className={cn(
+                    "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-xl border-none transition-all",
+                    isListening
+                      ? "bg-destructive text-white animate-pulse"
+                      : "bg-secondary text-muted-foreground hover:text-foreground"
+                  )}
+                  onClick={startListening}
+                  disabled={chatLoading || isListening}
+                >
+                  <Mic className="size-4" />
+                </button>
+                <input
+                  type="text"
+                  className="flex-1 rounded-xl border border-border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-foreground/40"
+                  placeholder="Type your question..."
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      sendChatMessage(chatInput);
+                    }
+                  }}
+                  disabled={chatLoading}
+                />
+                <button
+                  className={cn(
+                    "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-xl border-none bg-foreground text-white transition-all hover:opacity-80",
+                    (!chatInput.trim() || chatLoading) && "opacity-40"
+                  )}
+                  onClick={() => sendChatMessage(chatInput)}
+                  disabled={!chatInput.trim() || chatLoading}
+                >
+                  <Send className="size-4" />
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

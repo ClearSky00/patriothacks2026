@@ -97,14 +97,16 @@ Return ONLY a JSON object (no markdown, no code fences) with:
     {
       "type": "multiple_choice",
       "question": "the question text",
-      "options": ["A", "B", "C", "D"],
+      "options": ["answer text one", "answer text two", "answer text three", "answer text four"],
       "correct": 0,
       "explanation": "why this answer is correct"
     }
   ]
 }
 
-Generate exactly 5 multiple-choice questions. Keep language simple and encouraging.`;
+IMPORTANT: Each option must be the answer text ONLY. Do NOT prefix options with letters like "A. ", "B. ", "C. ", "D. " — just the plain answer text.
+
+Generate exactly 10 multiple-choice questions. Keep language simple and encouraging.`;
 
   const response = await genai.models.generateContent({
     model: "gemini-2.0-flash-lite",
@@ -127,7 +129,7 @@ async function ragQuiz(pages: PageInput[]) {
   // Step 2: Embed chunks (1 API call)
   const chunkTexts = rawChunks.map((c) => c.text);
   const chunkEmbedResponse = await genai.models.embedContent({
-    model: "text-embedding-004",
+    model: "gemini-embedding-001",
     contents: chunkTexts,
     config: {
       taskType: "RETRIEVAL_DOCUMENT",
@@ -154,10 +156,10 @@ Here is the story divided into sections:
 
 ${chunkSummary}
 
-Generate exactly 5 specific question TOPICS — short descriptions of what each question should ask about. Cover different parts of the story.
+Generate exactly 10 specific question TOPICS — short descriptions of what each question should ask about. Cover different parts of the story.
 
 Rules:
-- All 5 topics are for multiple-choice questions
+- All 10 topics are for multiple-choice questions
 - Each topic MUST reference a specific detail, character action, or event from a specific section
 - Do NOT use generic topics like "What is the story about?" or "Who is the main character?"
 - Each topic should be 1 sentence
@@ -168,8 +170,8 @@ Return ONLY a JSON object:
     { "topic": "...", "type": "multiple_choice" },
     { "topic": "...", "type": "multiple_choice" },
     { "topic": "...", "type": "multiple_choice" },
-    { "topic": "...", "type": "multiple_choice" },
-    { "topic": "...", "type": "multiple_choice" }
+    { "topic": "...", "type": "open_ended" },
+    { "topic": "...", "type": "open_ended" }
   ]
 }`;
 
@@ -187,7 +189,7 @@ Return ONLY a JSON object:
   // Step 4: Embed topics & retrieve (1 API call)
   const topicStrings = topics.map((t) => t.topic);
   const topicEmbedResponse = await genai.models.embedContent({
-    model: "text-embedding-004",
+    model: "gemini-embedding-001",
     contents: topicStrings,
     config: {
       taskType: "RETRIEVAL_QUERY",
@@ -214,23 +216,23 @@ Return ONLY a JSON object:
   const questionsPrompt = `You are a children's English teacher. Generate quiz questions for a young child (age 5-10) based on the story context provided for each topic.
 
 ${retrievedContexts
-  .map(
-    (ctx, i) =>
-      `--- Question ${i + 1} (${ctx.type}) ---
+      .map(
+        (ctx, i) =>
+          `--- Question ${i + 1} (${ctx.type}) ---
 Topic: ${ctx.topic}
 Relevant story text (${ctx.pageRef}):
 ${ctx.chunks.map((c) => c.text).join("\n")}
 Page reference: ${ctx.pageRef}`
-  )
-  .join("\n\n")}
+      )
+      .join("\n\n")}
 
-For each topic above, generate ONE question. Return ONLY a JSON object:
+For each topic above, generate ONE multiple-choice question. Return ONLY a JSON object:
 {
   "questions": [
     {
       "type": "multiple_choice",
       "question": "the question text",
-      "options": ["A", "B", "C", "D"],
+      "options": ["answer text one", "answer text two", "answer text three", "answer text four"],
       "correct": 0,
       "explanation": "why this answer is correct",
       "pageRef": "the page reference from above"
@@ -242,7 +244,8 @@ Rules:
 - Keep language simple and encouraging
 - Questions must be answerable from the provided text
 - Include the exact pageRef provided for each question
-- Generate questions in the same order as the topics above`;
+- Generate questions in the same order as the topics above
+- Each option must be the answer text ONLY — do NOT prefix with "A. ", "B. ", "C. ", "D. " or any letter`;
 
   const questionsResponse = await genai.models.generateContent({
     model: "gemini-2.0-flash-lite",

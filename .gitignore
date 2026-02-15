@@ -6,3 +6,6 @@ node_modules
 .claude
 /node_modules
 .node_modules
+CLAUDE.md
+.CLAUDE.md
+/CLAUDE.md
