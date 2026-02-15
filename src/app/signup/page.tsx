@@ -75,14 +75,14 @@ export default function SignupPage() {
             <div className="flex size-9 items-center justify-center rounded-xl bg-foreground text-white">
               <BookOpen className="size-4" />
             </div>
-            <span className="text-lg font-bold tracking-tight">Kahaani</span>
+            <span className="text-lg font-bold tracking-tight">StoryTime</span>
           </Link>
 
           <h1 className="mt-8 text-2xl font-bold tracking-tight">
             Create your account
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Join Kahaani and start learning with your own voice
+            Join StoryTime and start learning with your own voice
           </p>
 
           {error && (

@@ -170,6 +170,7 @@ function HomeContent() {
         active={activeScreen === "quiz"}
         pages={pages}
         sourceLang={sourceLang}
+        voiceId={voiceId}
       />
     </>
   );

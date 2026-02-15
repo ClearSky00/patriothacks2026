@@ -5,7 +5,7 @@ const steps = [
   {
     icon: Mic,
     title: "Clone a Voice",
-    description: "Record a short audio sample of a parent or loved one. We'll create a personalized voice clone.",
+    description: "Record a short audio sample of a parent or loved one. We'll create a personalized voice clone if desired.",
   },
   {
     icon: BookOpen,
@@ -15,7 +15,7 @@ const steps = [
   {
     icon: Headphones,
     title: "Listen & Learn",
-    description: "Hear the story read aloud in English using the cloned voice. Tap any word to hear its meaning.",
+    description: "Hear the story read aloud in English using the cloned voice. Tap a phrase to hear its meaning.",
   },
 ];
 
@@ -33,7 +33,7 @@ const features = [
   {
     icon: Brain,
     title: "AI Quizzes",
-    description: "Auto-generated comprehension quizzes with multiple choice and open-ended questions.",
+    description: "AI-generated comprehension quizzes with multiple choice questions.",
   },
   {
     icon: FileText,
@@ -52,7 +52,7 @@ export default function LandingPage() {
             <div className="flex size-8 items-center justify-center rounded-lg bg-foreground text-white">
               <BookOpen className="size-4" />
             </div>
-            <span className="text-lg font-bold tracking-tight">Kahaani</span>
+            <span className="text-lg font-bold tracking-tight">StoryTime</span>
           </Link>
           <div className="flex items-center gap-3">
             <Link
@@ -83,8 +83,8 @@ export default function LandingPage() {
             Stories in every language, read in a voice they love
           </h1>
           <p className="animate-fade-in-up-delay-2 mt-6 max-w-xl text-lg text-muted-foreground sm:text-xl">
-            Help children of immigrant families learn English by hearing stories
-            read aloud in a parent&apos;s cloned voice.
+            Helping parents and children in immigrant families learn English by hearing translated stories
+            read aloud.
           </p>
           <div className="animate-fade-in-up-delay-3 mt-10 flex flex-wrap items-center justify-center gap-4">
             <Link
@@ -194,7 +194,7 @@ export default function LandingPage() {
             <div className="flex size-6 items-center justify-center rounded-md bg-foreground text-white">
               <BookOpen className="size-3" />
             </div>
-            <span className="text-sm font-semibold">Kahaani</span>
+            <span className="text-sm font-semibold">StoryTime</span>
           </div>
           <p className="text-xs text-muted-foreground">
             Built for PatriotHacks 2026

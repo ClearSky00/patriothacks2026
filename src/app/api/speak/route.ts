@@ -9,13 +9,28 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { text, voiceId } = await request.json();
+    const { text, voiceId, lang } = await request.json();
     if (!text || !voiceId) {
       return NextResponse.json(
         { error: "text and voiceId required" },
         { status: 400 }
       );
     }
+
+    const isEnglish = lang === "en";
+
+    // Wrap text in SSML with <break> tags for natural pauses.
+    // Strip ellipsis which ElevenLabs vocalizes as "uh".
+    const cleaned = text
+      .replace(/\.{2,}/g, ".")               // collapse ellipsis to period
+      .replace(/\u2026/g, ".");              // collapse Unicode ellipsis to period
+
+    // Insert SSML break tags after punctuation
+    const withBreaks = cleaned
+      .replace(/([.!?])\s+/g, '$1 <break time="0.5s" /> ')   // long pause after sentences
+      .replace(/([,;:])\s+/g, '$1 <break time="0.5s" /> ');  // medium pause after commas/semicolons/colons
+
+    const processedText = `<speak>${withBreaks}</speak>`;
 
     const response = await fetch(
       `${ELEVENLABS_BASE}/text-to-speech/${voiceId}`,
@@ -27,13 +42,14 @@ export async function POST(request: NextRequest) {
           Accept: "audio/mpeg",
         },
         body: JSON.stringify({
-          text,
-          model_id: "eleven_multilingual_v2",
+          text: processedText,
+          model_id: isEnglish ? "eleven_turbo_v2" : "eleven_multilingual_v2",
           voice_settings: {
-            stability: 0.5,
+            stability: 0.3,
             similarity_boost: 0.85,
             style: 0.0,
             use_speaker_boost: true,
+            ...(isEnglish ? { speed: 0.7 } : {}),
           },
         }),
       }

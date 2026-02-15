@@ -17,7 +17,7 @@ const notoSansDevanagari = Noto_Sans_Devanagari({
 });
 
 export const metadata: Metadata = {
-  title: "Kahaani — Stories in Every Language",
+  title: "StoryTime — Stories in Every Language",
   description:
     "Clone a parent's voice and listen to stories read aloud in English. A bilingual story reader for kids of immigrant parents.",
 };

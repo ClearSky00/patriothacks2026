@@ -6,8 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { Upload, Trash2, Check, Mic, AudioWaveform } from "lucide-react";
+import { Upload, Trash2, Check, Mic, AudioWaveform, Volume2 } from "lucide-react";
 import type { Voice } from "@/lib/supabase/types";
+
+/* ── Curated ElevenLabs default voices ── */
+const DEFAULT_VOICES = [
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah", description: "Soft, young female" },
+  { id: "FGY2WhTYpPnrIDTdsKH5", name: "Laura", description: "Calm, mature female" },
+  { id: "IKne3meq5aSn9XLyUdCD", name: "Charlie", description: "Casual, young male" },
+  { id: "JBFqnCBsd6RMkjVDRZzb", name: "George", description: "Warm, British male" },
+  { id: "TX3LPaxmHKxFdv7VOQHJ", name: "Liam", description: "Friendly, young male" },
+  { id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily", description: "Warm, British female" },
+];
 
 interface VoiceSetupProps {
   active: boolean;
@@ -194,11 +204,57 @@ export function VoiceSetup({ active, onVoiceSelected }: VoiceSetupProps) {
             )}
           </div>
 
-          {/* Right: Clone Form */}
-          <div className="rounded-2xl border border-border p-6">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              Clone New Voice
-            </p>
+          {/* Right column: Default Voices + Clone Form */}
+          <div className="space-y-8">
+            {/* Default Voices */}
+            <div className="rounded-2xl border border-border p-6">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Default Voices
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Pick a pre-made voice to get started instantly
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                {DEFAULT_VOICES.map((dv) => {
+                  const isSelected = selectedVoiceId === dv.id;
+                  return (
+                    <button
+                      key={dv.id}
+                      className={cn(
+                        "flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all",
+                        isSelected
+                          ? "border-foreground bg-foreground/5 shadow-sm"
+                          : "border-border bg-transparent hover:border-foreground/30"
+                      )}
+                      onClick={() => {
+                        setSelectedVoiceId(dv.id);
+                        setStatusText(`Using voice "${dv.name}"`);
+                        onVoiceSelected(dv.id, dv.name);
+                      }}
+                    >
+                      <div
+                        className={cn(
+                          "flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                          isSelected ? "bg-foreground text-white" : "bg-secondary text-muted-foreground"
+                        )}
+                      >
+                        {isSelected ? <Check className="size-3.5" /> : <Volume2 className="size-3.5" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{dv.name}</p>
+                        <p className="text-[11px] text-muted-foreground">{dv.description}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Clone Form */}
+            <div className="rounded-2xl border border-border p-6">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Clone New Voice
+              </p>
 
             <div className="mt-5 space-y-4">
               <div>
@@ -295,6 +351,7 @@ export function VoiceSetup({ active, onVoiceSelected }: VoiceSetupProps) {
                 <span className="text-sm text-success">{statusText}</span>
               </div>
             )}
+          </div>
           </div>
         </div>
       </div>

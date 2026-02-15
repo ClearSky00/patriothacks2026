@@ -55,8 +55,8 @@ Return ONLY a JSON object (no markdown, no code fences) with this exact format:
 }
 
 Page types:
-- "cover" = front cover or title page
-- "publisher" = publisher info, copyright, ISBN, credits
+- "cover" = front cover or title page. For the text field, extract ONLY the book title — do NOT include publisher names, initiative names (e.g. "Read India"), author names, illustrator names, organization names, or any other text. Just the title of the book.
+- "publisher" = publisher info, copyright, ISBN, credits, or any page that is NOT part of the actual story (often page 2). This includes pages with logos, organization info, dedications, or credits.
 - "content" = actual story content with readable text (this is what we want)
 - "illustration" = story page that is primarily an illustration/picture with NO meaningful text (just an image). Set text to empty string for these.
 - "back_cover" = back cover, author bio, or summary on the back
@@ -64,6 +64,7 @@ Page types:
 
 IMPORTANT: If a page is part of the story but has only an illustration with no real text (or just a page number), classify it as "illustration" with an empty text field. Do NOT invent or hallucinate text for illustration pages.
 IMPORTANT: Ignore page numbers. Do NOT include page numbers (like "1", "2", "12", etc.) in the extracted text. Only extract the actual story text.
+IMPORTANT: Page 2 in children's books is almost always a publisher/credits page — classify it as "publisher" unless it clearly contains story text.
 Extract ALL story text from content pages faithfully. The text is in ${sourceLang}. Do not translate it.`,
             },
           ],
@@ -79,7 +80,7 @@ Extract ALL story text from content pages faithfully. The text is in ${sourceLan
 
     const storyPages = ocrData.pages.filter(
       (p: { type: string }) =>
-        p.type === "content" || p.type === "illustration"
+        p.type === "cover" || p.type === "content" || p.type === "illustration"
     );
     const textPages = storyPages.filter(
       (p: { text?: string }) => p.text && p.text.trim().length > 0

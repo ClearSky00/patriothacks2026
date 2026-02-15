@@ -32,10 +32,12 @@ export function StoryReader({
   const [vocabVisible, setVocabVisible] = useState(false);
   const [vocabWord, setVocabWord] = useState("");
   const [vocabTranslation, setVocabTranslation] = useState("");
+  const [flipClass, setFlipClass] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pdfDocRef = useRef<unknown>(null);
   const vocabTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pageIndexRef = useRef(currentPage);
+  const prevPageRef = useRef(currentPage);
 
   pageIndexRef.current = currentPage;
 
@@ -111,7 +113,18 @@ export function StoryReader({
   const goToPage = (idx: number) => {
     resetAudio();
     setVocabVisible(false);
-    setCurrentPage(idx);
+    const direction = idx > prevPageRef.current ? "flip-forward" : "flip-backward";
+    setFlipClass(direction);
+    // Wait for the "out" half of the animation, then switch page
+    setTimeout(() => {
+      setCurrentPage(idx);
+      prevPageRef.current = idx;
+      // After page renders, play the "in" half
+      requestAnimationFrame(() => {
+        setFlipClass(direction + "-in");
+        setTimeout(() => setFlipClass(null), 350);
+      });
+    }, 300);
   };
 
   const playPageAudio = async (lang: "english" | "original") => {
@@ -133,7 +146,7 @@ export function StoryReader({
       const res = await fetch("/api/speak", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voiceId }),
+        body: JSON.stringify({ text, voiceId, lang: lang === "english" ? "en" : undefined }),
       });
 
       if (!res.ok) throw new Error("TTS failed");
@@ -178,8 +191,9 @@ export function StoryReader({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            text: `${english}... ${original}`,
+            text: `${english}.\n\n${original}`,
             voiceId,
+            lang: "en",
           }),
         });
         if (res.ok) {
@@ -303,15 +317,45 @@ export function StoryReader({
         {/* Main content: side-by-side on desktop */}
         <div className="flex flex-1 flex-col pt-28 lg:flex-row">
           {/* PDF (left / top) — fill available height */}
-          <div className="flex items-center justify-center bg-secondary/30 p-4 lg:h-[calc(100vh-7rem)] lg:w-[60%] lg:p-6">
+          <div className="flex items-center justify-center bg-secondary/30 p-4 lg:h-[calc(100vh-7rem)] lg:w-[60%] lg:p-6" style={{ perspective: "1200px" }}>
             <canvas
               ref={canvasRef}
-              className="block h-full max-h-[60vh] w-auto max-w-full rounded-lg object-contain shadow-sm lg:max-h-full"
+              className={cn(
+                "block h-full max-h-[60vh] w-auto max-w-full rounded-lg object-contain shadow-sm lg:max-h-full",
+                flipClass && `page-${flipClass}`
+              )}
             />
           </div>
 
           {/* Text panels (right / bottom) */}
           <div className="flex flex-col gap-4 p-6 lg:h-[calc(100vh-7rem)] lg:w-[40%] lg:overflow-y-auto lg:p-8">
+            {/* Page navigation */}
+            <div className="flex items-center justify-between gap-3">
+              <Button
+                variant="outline"
+                disabled={currentPage === 0}
+                onClick={() => goToPage(currentPage - 1)}
+              >
+                <ChevronLeft className="mr-1 size-4" />
+                Previous
+              </Button>
+
+              {isLastPage ? (
+                <Button variant="primary" onClick={onGoToQuiz} className="gap-2">
+                  <Brain className="size-4" />
+                  Take Quiz
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  onClick={() => goToPage(currentPage + 1)}
+                >
+                  Next
+                  <ChevronRight className="ml-1 size-4" />
+                </Button>
+              )}
+            </div>
+
             {/* English text */}
             {hasEnglishText && (
               <div className="rounded-xl border border-border p-5">
@@ -342,7 +386,7 @@ export function StoryReader({
                     )}
                   </button>
                 </div>
-                <p className="text-sm leading-relaxed">
+                <p className="text-lg leading-relaxed">
                   {renderTranslatedText()}
                 </p>
               </div>
@@ -384,32 +428,7 @@ export function StoryReader({
               </div>
             )}
 
-            {/* Page navigation */}
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <Button
-                variant="outline"
-                disabled={currentPage === 0}
-                onClick={() => goToPage(currentPage - 1)}
-              >
-                <ChevronLeft className="mr-1 size-4" />
-                Previous
-              </Button>
 
-              {isLastPage ? (
-                <Button variant="primary" onClick={onGoToQuiz} className="gap-2">
-                  <Brain className="size-4" />
-                  Take Quiz
-                </Button>
-              ) : (
-                <Button
-                  variant="primary"
-                  onClick={() => goToPage(currentPage + 1)}
-                >
-                  Next
-                  <ChevronRight className="ml-1 size-4" />
-                </Button>
-              )}
-            </div>
           </div>
         </div>
       </div>

@@ -100,17 +100,11 @@ Return ONLY a JSON object (no markdown, no code fences) with:
       "options": ["A", "B", "C", "D"],
       "correct": 0,
       "explanation": "why this answer is correct"
-    },
-    {
-      "type": "open_ended",
-      "question": "the question text",
-      "sampleAnswer": "a sample good answer",
-      "hint": "a helpful hint for the child"
     }
   ]
 }
 
-Generate exactly 3 multiple-choice questions and 2 open-ended questions. Keep language simple and encouraging.`;
+Generate exactly 5 multiple-choice questions. Keep language simple and encouraging.`;
 
   const response = await genai.models.generateContent({
     model: "gemini-2.0-flash-lite",
@@ -163,7 +157,7 @@ ${chunkSummary}
 Generate exactly 5 specific question TOPICS — short descriptions of what each question should ask about. Cover different parts of the story.
 
 Rules:
-- 3 topics for multiple-choice questions, 2 for open-ended questions
+- All 5 topics are for multiple-choice questions
 - Each topic MUST reference a specific detail, character action, or event from a specific section
 - Do NOT use generic topics like "What is the story about?" or "Who is the main character?"
 - Each topic should be 1 sentence
@@ -174,8 +168,8 @@ Return ONLY a JSON object:
     { "topic": "...", "type": "multiple_choice" },
     { "topic": "...", "type": "multiple_choice" },
     { "topic": "...", "type": "multiple_choice" },
-    { "topic": "...", "type": "open_ended" },
-    { "topic": "...", "type": "open_ended" }
+    { "topic": "...", "type": "multiple_choice" },
+    { "topic": "...", "type": "multiple_choice" }
   ]
 }`;
 
@@ -239,13 +233,6 @@ For each topic above, generate ONE question. Return ONLY a JSON object:
       "options": ["A", "B", "C", "D"],
       "correct": 0,
       "explanation": "why this answer is correct",
-      "pageRef": "the page reference from above"
-    },
-    {
-      "type": "open_ended",
-      "question": "the question text",
-      "sampleAnswer": "a sample good answer",
-      "hint": "a helpful hint for the child",
       "pageRef": "the page reference from above"
     }
   ]

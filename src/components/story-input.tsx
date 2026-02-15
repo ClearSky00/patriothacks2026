@@ -100,7 +100,7 @@ export function StoryInput({
       await supabase.storage.from("Books").upload(`${user.id}/${book.id}.pdf`, file, { contentType: "application/pdf", upsert: true });
       const pagesBlob = new Blob([JSON.stringify(pages)], { type: "application/json" });
       await supabase.storage.from("Books").upload(`${user.id}/${book.id}_pages.json`, pagesBlob, { contentType: "application/json", upsert: true });
-      setSavedBooks((prev) => [book as Book, ...prev]);
+      setSavedBooks((prev) => [book as Book, ...prev.filter((b) => b.id !== book.id)]);
     } catch (err) { console.error("Save to Supabase error:", err); }
   };
 

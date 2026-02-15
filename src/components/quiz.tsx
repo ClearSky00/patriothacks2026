@@ -4,12 +4,13 @@ import { useState, useEffect, useCallback } from "react";
 import type { PageData } from "./story-input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Trophy, Mic, Lightbulb, Eye, RotateCcw, CheckCircle2, XCircle, PartyPopper, TrendingUp, BookOpen } from "lucide-react";
+import { Trophy, RotateCcw, CheckCircle2, XCircle, PartyPopper, TrendingUp, BookOpen, Volume2, Pause } from "lucide-react";
 
 interface QuizProps {
   active: boolean;
   pages: PageData[];
   sourceLang: string;
+  voiceId: string | null;
 }
 
 interface MCQuestion {
@@ -21,27 +22,14 @@ interface MCQuestion {
   pageRef?: string;
 }
 
-interface OEQuestion {
-  type: "open_ended";
-  question: string;
-  sampleAnswer: string;
-  hint: string;
-  pageRef?: string;
-}
-
-type Question = MCQuestion | OEQuestion;
-
-export function Quiz({ active, pages, sourceLang }: QuizProps) {
+export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
   const [loading, setLoading] = useState(false);
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [questions, setQuestions] = useState<MCQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [showResults, setShowResults] = useState(false);
-  const [hintsShown, setHintsShown] = useState<Set<number>>(new Set());
-  const [sampleAnswersShown, setSampleAnswersShown] = useState<Set<number>>(
-    new Set()
-  );
-  const [transcripts, setTranscripts] = useState<Record<number, string>>({});
   const [loadKey, setLoadKey] = useState(0);
+  const [playingKey, setPlayingKey] = useState<string | null>(null);
+  const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
 
   const loadQuiz = useCallback(async () => {
     if (pages.length === 0) return;
@@ -49,9 +37,6 @@ export function Quiz({ active, pages, sourceLang }: QuizProps) {
     setQuestions([]);
     setAnswers({});
     setShowResults(false);
-    setHintsShown(new Set());
-    setSampleAnswersShown(new Set());
-    setTranscripts({});
 
     try {
       const res = await fetch("/api/quiz", {
@@ -62,7 +47,11 @@ export function Quiz({ active, pages, sourceLang }: QuizProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Quiz generation failed");
 
-      setQuestions(data.questions);
+      setQuestions(
+        (data.questions as MCQuestion[]).filter(
+          (q) => q.type === "multiple_choice"
+        )
+      );
     } catch (err) {
       console.error("Quiz load error:", err);
     } finally {
@@ -76,17 +65,12 @@ export function Quiz({ active, pages, sourceLang }: QuizProps) {
     }
   }, [active, loadKey, loadQuiz, pages.length]);
 
-  const mcQuestions = questions.filter(
-    (q): q is MCQuestion => q.type === "multiple_choice"
-  );
-  const totalMC = mcQuestions.length;
-  const answeredMC = Object.keys(answers).filter((k) =>
-    questions[parseInt(k)]?.type === "multiple_choice"
-  ).length;
+  const totalMC = questions.length;
+  const answeredMC = Object.keys(answers).length;
 
   const mcScore = Object.entries(answers).reduce((score, [idx, selected]) => {
     const q = questions[parseInt(idx)];
-    if (q?.type === "multiple_choice" && selected === q.correct) score++;
+    if (q && selected === q.correct) score++;
     return score;
   }, 0);
 
@@ -102,32 +86,46 @@ export function Quiz({ active, pages, sourceLang }: QuizProps) {
     setAnswers((prev) => ({ ...prev, [qIdx]: optIdx }));
   };
 
-  const startRecording = (qIdx: number) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any;
-    const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition;
+  const narrate = async (key: string, text: string) => {
+    if (!voiceId) return;
 
-    if (!SpeechRecognition) return;
+    if (currentAudio) {
+      currentAudio.pause();
+      setCurrentAudio(null);
+    }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
-    recognition.interimResults = true;
-    recognition.continuous = false;
+    if (playingKey === key) {
+      setPlayingKey(null);
+      return;
+    }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognition.onresult = (e: any) => {
-      let transcript = "";
-      for (let i = 0; i < e.results.length; i++) {
-        transcript += e.results[i][0].transcript;
-      }
-      setTranscripts((prev) => ({ ...prev, [qIdx]: transcript }));
-    };
+    setPlayingKey(key);
 
-    recognition.start();
+    try {
+      const res = await fetch("/api/speak", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voiceId, lang: "en" }),
+      });
+      if (!res.ok) throw new Error("TTS failed");
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      setCurrentAudio(audio);
+      audio.play();
+      audio.onended = () => {
+        setPlayingKey(null);
+        setCurrentAudio(null);
+        URL.revokeObjectURL(url);
+      };
+    } catch (err) {
+      console.error("Narrate error:", err);
+      setPlayingKey(null);
+    }
   };
 
   let mcNum = 0;
-  let oeNum = 0;
 
   const getResultIcon = () => {
     const pct = mcScore / totalMC;
@@ -168,7 +166,7 @@ export function Quiz({ active, pages, sourceLang }: QuizProps) {
 
         <div className="mt-8 space-y-5">
           {questions.map((q, qIdx) => {
-            if (q.type === "multiple_choice") {
+            {
               mcNum++;
               const answered = answers[qIdx] !== undefined;
               const selected = answers[qIdx];
@@ -193,6 +191,26 @@ export function Quiz({ active, pages, sourceLang }: QuizProps) {
                     <p className="mt-3 text-sm font-semibold leading-relaxed">
                       {q.question}
                     </p>
+                    {voiceId && (
+                      <button
+                        className={cn(
+                          "mt-2 flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
+                          playingKey === `q-${qIdx}`
+                            ? "border-foreground bg-foreground text-white"
+                            : "border-border bg-transparent text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+                        )}
+                        onClick={() => {
+                          const fullText = `${q.question} <break time="0.5s" /> A. ${q.options[0]}. <break time="0.5s" /> B. ${q.options[1]}. <break time="0.8s" /> C. ${q.options[2]}. <break time="0.8s" /> ${q.options[3] ? `D. ${q.options[3]}.` : ""}`;
+                          narrate(`q-${qIdx}`, fullText);
+                        }}
+                      >
+                        {playingKey === `q-${qIdx}` ? (
+                          <><Pause className="size-3" /> Playing</>
+                        ) : (
+                          <><Volume2 className="size-3" /> Listen</>
+                        )}
+                      </button>
+                    )}
                     <div className="mt-4 space-y-2">
                       {q.options.map((opt, oIdx) => {
                         const isCorrect = answered && oIdx === q.correct;
@@ -235,81 +253,26 @@ export function Quiz({ active, pages, sourceLang }: QuizProps) {
                     </div>
                     {answered && (
                       <div className="mt-4 rounded-xl bg-secondary px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-                        {q.explanation}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            } else {
-              oeNum++;
-              return (
-                <div
-                  key={qIdx}
-                  className="animate-fade-in-up overflow-hidden rounded-2xl border border-border bg-white shadow-sm"
-                  style={{ animationDelay: `${qIdx * 50}ms` }}
-                >
-                  <div className="p-6">
-                    <span className="inline-flex items-center gap-2">
-                      <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Open Ended
-                      </span>
-                      {q.pageRef && (
-                        <span className="inline-flex items-center rounded-full bg-foreground/5 px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                          {q.pageRef}
-                        </span>
-                      )}
-                    </span>
-                    <p className="mt-3 text-sm font-semibold leading-relaxed">
-                      {q.question}
-                    </p>
-
-                    <div className="mt-5 flex flex-col items-center gap-3">
-                      <button
-                        className="flex cursor-pointer items-center gap-2 rounded-full border border-border bg-transparent px-6 py-3 text-sm font-medium text-muted-foreground transition-all hover:border-foreground hover:text-foreground active:scale-95"
-                        onClick={() => startRecording(qIdx)}
-                      >
-                        <Mic className="size-4" />
-                        Tap to Answer
-                      </button>
-                      {transcripts[qIdx] && (
-                        <p className="w-full rounded-xl bg-secondary px-4 py-3 text-sm italic text-foreground">
-                          {transcripts[qIdx]}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="mt-4 flex gap-2">
-                      <button
-                        className="flex cursor-pointer items-center gap-1.5 rounded-lg border-none bg-secondary px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                        onClick={() =>
-                          setHintsShown((prev) => new Set([...prev, qIdx]))
-                        }
-                      >
-                        <Lightbulb className="size-3.5" />
-                        Hint
-                      </button>
-                      <button
-                        className="flex cursor-pointer items-center gap-1.5 rounded-lg border-none bg-secondary px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                        onClick={() =>
-                          setSampleAnswersShown(
-                            (prev) => new Set([...prev, qIdx])
-                          )
-                        }
-                      >
-                        <Eye className="size-3.5" />
-                        Show Answer
-                      </button>
-                    </div>
-
-                    {hintsShown.has(qIdx) && (
-                      <div className="mt-3 rounded-xl bg-secondary px-4 py-3 text-xs italic leading-relaxed text-muted-foreground">
-                        {q.hint || "Think about what happened in the story!"}
-                      </div>
-                    )}
-                    {sampleAnswersShown.has(qIdx) && (
-                      <div className="mt-2 rounded-xl border-l-2 border-foreground bg-secondary px-4 py-3 text-xs leading-relaxed">
-                        <strong>Sample:</strong> {q.sampleAnswer}
+                        <div className="flex items-start justify-between gap-2">
+                          <span>{q.explanation}</span>
+                          {voiceId && (
+                            <button
+                              className={cn(
+                                "ml-2 flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium transition-all",
+                                playingKey === `exp-${qIdx}`
+                                  ? "border-foreground bg-foreground text-white"
+                                  : "border-border bg-transparent text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+                              )}
+                              onClick={() => narrate(`exp-${qIdx}`, q.explanation)}
+                            >
+                              {playingKey === `exp-${qIdx}` ? (
+                                <><Pause className="size-3" /> Playing</>
+                              ) : (
+                                <><Volume2 className="size-3" /> Listen</>
+                              )}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

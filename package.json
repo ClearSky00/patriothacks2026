@@ -1,5 +1,5 @@
 {
-  "name": "kahaani",
+  "name": "storytime",
   "version": "1.0.0",
   "description": "Bilingual story reader with voice-cloned parent narration",
   "private": true,
@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@elevenlabs/client": "^0.14.0",
     "@google/genai": "^0.7.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.95.3",
