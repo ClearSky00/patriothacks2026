@@ -1,87 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { genai, getResponseText, cleanJsonResponse } from "@/lib/gemini";
 import { createClient } from "@/lib/supabase/server";
-
-// ---------- Types ----------
-
-interface PageInput {
-  pageNum: number;
-  originalText: string;
-  translatedText: string;
-  vocab: { english: string; original: string }[];
-  isIllustration: boolean;
-}
-
-interface Chunk {
-  id: number;
-  pageNums: number[];
-  text: string;
-  originalText: string;
-  vocab: { english: string; original: string }[];
-  embedding: number[];
-}
-
-// ---------- RAG utilities ----------
-
-function chunkPages(pages: PageInput[]): Omit<Chunk, "embedding">[] {
-  const chunks: Omit<Chunk, "embedding">[] = [];
-  let current: PageInput[] = [];
-
-  const flush = () => {
-    if (current.length === 0) return;
-    chunks.push({
-      id: chunks.length,
-      pageNums: current.map((p) => p.pageNum),
-      text: current.map((p) => p.translatedText).join("\n"),
-      originalText: current.map((p) => p.originalText).join("\n"),
-      vocab: current.flatMap((p) => p.vocab),
-    });
-    current = [];
-  };
-
-  for (const page of pages) {
-    if (page.isIllustration || !page.translatedText.trim()) {
-      flush();
-      continue;
-    }
-    current.push(page);
-    if (current.length >= 3) flush();
-  }
-  flush();
-
-  return chunks;
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  let dot = 0,
-    magA = 0,
-    magB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    magA += a[i] * a[i];
-    magB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(magA) * Math.sqrt(magB);
-  return denom === 0 ? 0 : dot / denom;
-}
-
-function retrieveTopChunks(
-  queryEmbedding: number[],
-  chunks: Chunk[],
-  topK: number
-): Chunk[] {
-  const scored = chunks.map((c) => ({
-    chunk: c,
-    score: cosineSimilarity(queryEmbedding, c.embedding),
-  }));
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK).map((s) => s.chunk);
-}
-
-function formatPageRef(pageNums: number[]): string {
-  if (pageNums.length === 1) return `Page ${pageNums[0]}`;
-  return `Pages ${pageNums[0]}–${pageNums[pageNums.length - 1]}`;
-}
+import {
+  type PageInput,
+  chunkPages,
+  buildChunksWithEmbeddings,
+  retrieveTopChunks,
+  formatPageRef,
+  embedTexts,
+} from "@/lib/rag";
 
 // ---------- Fallback (original approach) ----------
 
@@ -120,34 +47,15 @@ Generate exactly 10 multiple-choice questions. Keep language simple and encourag
 // ---------- RAG pipeline ----------
 
 async function ragQuiz(pages: PageInput[]) {
-  // Step 1: Chunk pages
-  const rawChunks = chunkPages(pages);
-  if (rawChunks.length === 0) {
+  // Step 1: Chunk & embed pages
+  const chunks = await buildChunksWithEmbeddings(pages);
+  if (chunks.length === 0) {
     throw new Error("No text chunks produced from pages");
   }
 
-  // Step 2: Embed chunks (1 API call)
-  const chunkTexts = rawChunks.map((c) => c.text);
-  const chunkEmbedResponse = await genai.models.embedContent({
-    model: "gemini-embedding-001",
-    contents: chunkTexts,
-    config: {
-      taskType: "RETRIEVAL_DOCUMENT",
-      outputDimensionality: 256,
-    },
-  });
-
-  const chunks: Chunk[] = rawChunks.map((c, i) => ({
-    ...c,
-    embedding: chunkEmbedResponse.embeddings?.[i]?.values ?? [],
-  }));
-
-  // Step 3: Generate question topics (1 API call)
+  // Step 2: Generate question topics (1 API call)
   const chunkSummary = chunks
-    .map(
-      (c) =>
-        `[${formatPageRef(c.pageNums)}]:\n${c.text}`
-    )
+    .map((c) => `[${formatPageRef(c.pageNums)}]:\n${c.text}`)
     .join("\n\n");
 
   const topicsPrompt = `You are a children's English teacher preparing a quiz for a young child (age 5-10) about a story they just read.
@@ -170,8 +78,13 @@ Return ONLY a JSON object:
     { "topic": "...", "type": "multiple_choice" },
     { "topic": "...", "type": "multiple_choice" },
     { "topic": "...", "type": "multiple_choice" },
-    { "topic": "...", "type": "open_ended" },
-    { "topic": "...", "type": "open_ended" }
+    { "topic": "...", "type": "multiple_choice" },
+    { "topic": "...", "type": "multiple_choice" },
+    { "topic": "...", "type": "multiple_choice" },
+    { "topic": "...", "type": "multiple_choice" },
+    { "topic": "...", "type": "multiple_choice" },
+    { "topic": "...", "type": "multiple_choice" },
+    { "topic": "...", "type": "multiple_choice" }
   ]
 }`;
 
@@ -186,45 +99,41 @@ Return ONLY a JSON object:
   );
   const topics: { topic: string; type: string }[] = topicsData.topics;
 
-  // Step 4: Embed topics & retrieve (1 API call)
-  const topicStrings = topics.map((t) => t.topic);
-  const topicEmbedResponse = await genai.models.embedContent({
-    model: "gemini-embedding-001",
-    contents: topicStrings,
-    config: {
-      taskType: "RETRIEVAL_QUERY",
-      outputDimensionality: 256,
-    },
-  });
+  // Step 3: Embed topics & retrieve (1 API call)
+  const topicEmbeddings = await embedTexts(
+    topics.map((t) => t.topic),
+    "RETRIEVAL_QUERY"
+  );
 
   const retrievedContexts = topics.map((t, i) => {
-    const queryEmb = topicEmbedResponse.embeddings?.[i]?.values ?? [];
-    const topChunks = retrieveTopChunks(queryEmb, chunks, 2);
+    const topScoredChunks = retrieveTopChunks(topicEmbeddings[i], chunks, 2);
     return {
       topic: t.topic,
       type: t.type,
-      chunks: topChunks,
+      chunks: topScoredChunks.map((s) => s.chunk),
       pageRef: formatPageRef(
-        [...new Set(topChunks.flatMap((c) => c.pageNums))].sort(
-          (a, b) => a - b
-        )
+        [
+          ...new Set(
+            topScoredChunks.flatMap((s) => s.chunk.pageNums)
+          ),
+        ].sort((a, b) => a - b)
       ),
     };
   });
 
-  // Step 5: Generate grounded questions (1 API call)
+  // Step 4: Generate grounded questions (1 API call)
   const questionsPrompt = `You are a children's English teacher. Generate quiz questions for a young child (age 5-10) based on the story context provided for each topic.
 
 ${retrievedContexts
-      .map(
-        (ctx, i) =>
-          `--- Question ${i + 1} (${ctx.type}) ---
+    .map(
+      (ctx, i) =>
+        `--- Question ${i + 1} (${ctx.type}) ---
 Topic: ${ctx.topic}
 Relevant story text (${ctx.pageRef}):
 ${ctx.chunks.map((c) => c.text).join("\n")}
 Page reference: ${ctx.pageRef}`
-      )
-      .join("\n\n")}
+    )
+    .join("\n\n")}
 
 For each topic above, generate ONE multiple-choice question. Return ONLY a JSON object:
 {

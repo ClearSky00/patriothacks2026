@@ -182,8 +182,6 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
 
   // --- Chatbot logic ---
 
-  const storyText = pages.map((p) => p.translatedText).join("\n");
-
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
@@ -254,7 +252,7 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
         const res = await fetch("/api/book-chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question: text.trim(), storyText }),
+          body: JSON.stringify({ question: text.trim(), pages }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Chat failed");
@@ -284,7 +282,7 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
         setChatLoading(false);
       }
     },
-    [chatLoading, storyText, voiceId, playTTS]
+    [chatLoading, pages, voiceId, playTTS]
   );
 
   const startListening = useCallback(() => {
@@ -374,11 +372,7 @@ export function Quiz({ active, pages, sourceLang, voiceId }: QuizProps) {
                     <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Question {qIdx + 1}
                     </span>
-                    {q.pageRef && (
-                      <span className="inline-flex items-center rounded-full bg-foreground/5 px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                        {q.pageRef}
-                      </span>
-                    )}
+
                   </span>
                   <p className="mt-3 text-sm font-semibold leading-relaxed">
                     {q.question}
