@@ -41,7 +41,7 @@ export default function LoginPage() {
             <div className="flex size-9 items-center justify-center rounded-xl bg-foreground text-white">
               <BookOpen className="size-4" />
             </div>
-            <span className="text-lg font-bold tracking-tight">StoryTime</span>
+            <span className="text-lg font-bold tracking-tight">Kahani</span>
           </Link>
 
           <h1 className="mt-8 text-2xl font-bold tracking-tight">

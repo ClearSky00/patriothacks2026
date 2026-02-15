@@ -52,7 +52,7 @@ export default function LandingPage() {
             <div className="flex size-8 items-center justify-center rounded-lg bg-foreground text-white">
               <BookOpen className="size-4" />
             </div>
-            <span className="text-lg font-bold tracking-tight">StoryTime</span>
+            <span className="text-lg font-bold tracking-tight">Kahani</span>
           </Link>
           <div className="flex items-center gap-3">
             <Link
@@ -194,7 +194,7 @@ export default function LandingPage() {
             <div className="flex size-6 items-center justify-center rounded-md bg-foreground text-white">
               <BookOpen className="size-3" />
             </div>
-            <span className="text-sm font-semibold">StoryTime</span>
+            <span className="text-sm font-semibold">Kahani</span>
           </div>
           <p className="text-xs text-muted-foreground">
             Built for PatriotHacks 2026

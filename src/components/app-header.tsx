@@ -30,7 +30,7 @@ export function AppHeader() {
           <div className="flex size-8 items-center justify-center rounded-lg bg-foreground text-white">
             <BookOpen className="size-4" />
           </div>
-          <span className="text-lg font-bold tracking-tight">StoryTime</span>
+          <span className="text-lg font-bold tracking-tight">Kahani</span>
         </Link>
 
         {/* Right: Nav + User */}
